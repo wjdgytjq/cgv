@@ -1,15 +1,6 @@
 import crypto from "crypto";
 
 export default async function handler(req, res) {
-  // 1. 리전 확인용 디버그 파라미터 (?debug=true 로 접속 시)
-  if (req.query.debug === "true") {
-    return res.status(200).json({
-      region: process.env.VERCEL_REGION || "local",
-      message: "현재 실행 중인 리전 확인"
-    });
-  }
-
-  // 2. CORS 헤더 설정
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -18,13 +9,47 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // 3. 필수 파라미터 확인
-  const { eventNo, spmtlNo } = req.query;
+  const { test, eventNo, spmtlNo } = req.query;
+
+  // [테스트 1] Vercel 서울 서버의 실제 외부 통신 IP 확인
+  if (test === "ip") {
+    try {
+      const ipRes = await fetch("https://api.ipify.org?format=json");
+      const ipData = await ipRes.json();
+      return res.status(200).json({
+        region: process.env.VERCEL_REGION || "local",
+        outboundIp: ipData.ip,
+        note: "이 IP로 CGV 서버에 접속을 시도합니다."
+      });
+    } catch (e) {
+      return res.status(500).json({ error: "IP 확인 실패", message: e.message });
+    }
+  }
+
+  // [테스트 2] CGV 메인 도메인 기본 접속 여부 확인 (홈페이지 Ping)
+  if (test === "ping") {
+    try {
+      const pingRes = await fetch("https://event.cgv.co.kr", {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        }
+      });
+      return res.status(200).json({
+        target: "https://event.cgv.co.kr",
+        httpStatus: pingRes.status,
+        statusText: pingRes.statusText,
+        isBlocked: pingRes.status === 403 || pingRes.status === 401
+      });
+    } catch (e) {
+      return res.status(500).json({ error: "CGV 기본 도메인 접속 불가", message: e.message });
+    }
+  }
+
+  // [실제 API 요청 처리]
   if (!eventNo || !spmtlNo) {
     return res.status(400).json({ error: "eventNo와 spmtlNo가 필요합니다." });
   }
 
-  // 4. CGV API 설정 및 HMAC 서명 생성
   const baseUrl = "https://event.cgv.co.kr";
   const path = "/evt/saprm/saprm/searchSaprmEvtTgtsiteList";
   const targetUrl = `${baseUrl}${path}?coCd=A420&saprmEvntNo=${eventNo}&spmtlNo=${spmtlNo}`;
@@ -38,35 +63,32 @@ export default async function handler(req, res) {
     .update(message)
     .digest("base64");
 
-  // 5. CGV 서버로 호출
   try {
     const response = await fetch(targetUrl, {
       method: "GET",
       headers: {
         "Host": "event.cgv.co.kr",
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Language": "ko-KR,ko;q=0.9",
         "Origin": "https://event.cgv.co.kr",
         "Referer": `https://event.cgv.co.kr/events/special/saprm/saprmEvtInfo.aspx?eventNo=${eventNo}`,
-        "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         "X-TIMESTAMP": timestamp,
         "X-SIGNATURE": signatureBase64
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`CGV 응답 코드 오류: ${response.status}`);
-    }
+    const status = response.status;
+    const rawText = await response.text();
 
-    const data = await response.json();
-    return res.status(200).json(data);
+    // 403 에러가 발생해도 중단하지 않고 CGV가 보낸 응답 원문을 그대로 반환
+    return res.status(status).json({
+      httpStatus: status,
+      headers: Object.fromEntries(response.headers.entries()),
+      bodyPreview: rawText.substring(0, 500)
+    });
+
   } catch (error) {
-    return res.status(500).json({ error: "서버 에러 발생", message: error.message });
+    return res.status(500).json({ error: "네트워크 통신 실패", message: error.message });
   }
 }
