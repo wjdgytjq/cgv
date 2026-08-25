@@ -1,7 +1,6 @@
 import crypto from "crypto";
 
 export default async function handler(req, res) {
-  // 1. CORS 설정 (블로그에서 호출 허용)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -10,13 +9,11 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // 2. 파라미터 확인
   const { eventNo, spmtlNo } = req.query;
   if (!eventNo || !spmtlNo) {
     return res.status(400).json({ error: "eventNo와 spmtlNo가 필요합니다." });
   }
 
-  // 3. CGV API 설정 및 HMAC SHA256 서명 생성
   const baseUrl = "https://event.cgv.co.kr";
   const path = "/evt/saprm/saprm/searchSaprmEvtTgtsiteList";
   const targetUrl = `${baseUrl}${path}?coCd=A420&saprmEvntNo=${eventNo}&spmtlNo=${spmtlNo}`;
@@ -30,15 +27,24 @@ export default async function handler(req, res) {
     .update(message)
     .digest("base64");
 
-  // 4. CGV 서버로 서울 리전 IP를 통해 요청
   try {
     const response = await fetch(targetUrl, {
       method: "GET",
       headers: {
-        "Accept": "application/json",
+        "Host": "event.cgv.co.kr",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Origin": "https://event.cgv.co.kr",
+        "Referer": `https://event.cgv.co.kr/events/special/saprm/saprmEvtInfo.aspx?eventNo=${eventNo}`,
+        "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         "X-TIMESTAMP": timestamp,
-        "X-SIGNATURE": signatureBase64,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "X-SIGNATURE": signatureBase64
       }
     });
 
