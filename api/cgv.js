@@ -1,6 +1,15 @@
 import crypto from "crypto";
 
 export default async function handler(req, res) {
+  // 1. 리전 확인용 디버그 파라미터 (?debug=true 로 접속 시)
+  if (req.query.debug === "true") {
+    return res.status(200).json({
+      region: process.env.VERCEL_REGION || "local",
+      message: "현재 실행 중인 리전 확인"
+    });
+  }
+
+  // 2. CORS 헤더 설정
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -9,11 +18,13 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
+  // 3. 필수 파라미터 확인
   const { eventNo, spmtlNo } = req.query;
   if (!eventNo || !spmtlNo) {
     return res.status(400).json({ error: "eventNo와 spmtlNo가 필요합니다." });
   }
 
+  // 4. CGV API 설정 및 HMAC 서명 생성
   const baseUrl = "https://event.cgv.co.kr";
   const path = "/evt/saprm/saprm/searchSaprmEvtTgtsiteList";
   const targetUrl = `${baseUrl}${path}?coCd=A420&saprmEvntNo=${eventNo}&spmtlNo=${spmtlNo}`;
@@ -27,6 +38,7 @@ export default async function handler(req, res) {
     .update(message)
     .digest("base64");
 
+  // 5. CGV 서버로 호출
   try {
     const response = await fetch(targetUrl, {
       method: "GET",
